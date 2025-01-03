@@ -35,7 +35,7 @@
 #   HAVE_SSL_SET0_WBIO: `SSL_set0_wbio` present in OpenSSL/wolfSSL
 #   HAVE_OPENSSL_SRP: `SSL_CTX_set_srp_username` present in OpenSSL/wolfSSL
 #   HAVE_GNUTLS_SRP: `gnutls_srp_verifier` present in GnuTLS
-#   HAVE_SSL_CTX_SET_QUIC_METHOD: `SSL_CTX_set_quic_method` present in OpenSSL/wolfSSL
+#   HAVE_SSL_SET_QUIC_USE_LEGACY_CODEPOINT: `SSL_set_quic_use_legacy_codepoint` present in OpenSSL/wolfSSL
 #   HAVE_QUICHE_CONN_SET_QLOG_FD: `quiche_conn_set_qlog_fd` present in quiche
 #   HAVE_ECH: ECH API checks for OpenSSL, BoringSSL or wolfSSL
 #
@@ -225,7 +225,7 @@ cmake_dependent_option(ENABLE_THREADED_RESOLVER "Enable threaded DNS lookup"
 
 include(PickyWarnings)
 
-if(CMAKE_SYSTEM_NAME MATCHES "Linux")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_GNU_SOURCE")  # Required for sendmmsg()
 endif()
 
@@ -245,6 +245,25 @@ endif()
 
 if(ENABLE_CURLDEBUG)
   set_property(DIRECTORY APPEND PROPERTY COMPILE_DEFINITIONS "CURLDEBUG")
+endif()
+
+option(CURL_CLANG_TIDY "Run the build through clang-tidy" OFF)
+if(CURL_CLANG_TIDY)
+  set(CMAKE_UNITY_BUILD OFF)
+  set(_tidy_checks "")
+  list(APPEND _tidy_checks "-clang-analyzer-security.insecureAPI.strcpy")
+  list(APPEND _tidy_checks "-clang-analyzer-optin.performance.Padding")
+  list(APPEND _tidy_checks "-clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling")
+  string(REPLACE ";" "," _tidy_checks "${_tidy_checks}")
+  find_program(CLANG_TIDY NAMES "clang-tidy" REQUIRED)
+  set(CMAKE_C_CLANG_TIDY "${CLANG_TIDY}" "-checks=${_tidy_checks}" "-quiet")
+  unset(_tidy_checks)
+  if(CURL_WERROR)
+    list(APPEND CMAKE_C_CLANG_TIDY "--warnings-as-errors=*")
+  endif()
+  if(CURL_CLANG_TIDYFLAGS)
+    list(APPEND CMAKE_C_CLANG_TIDY ${CURL_CLANG_TIDYFLAGS})
+  endif()
 endif()
 
 # For debug libs and exes, add "-d" postfix
@@ -450,12 +469,11 @@ if(ENABLE_IPV6 AND NOT WIN32)
   if(APPLE AND NOT ENABLE_ARES)
     set(_use_core_foundation_and_core_services ON)
 
-    find_library(SYSTEMCONFIGURATION_FRAMEWORK "SystemConfiguration")
+    find_library(SYSTEMCONFIGURATION_FRAMEWORK NAMES "SystemConfiguration")
     mark_as_advanced(SYSTEMCONFIGURATION_FRAMEWORK)
     if(NOT SYSTEMCONFIGURATION_FRAMEWORK)
       message(FATAL_ERROR "SystemConfiguration framework not found")
     endif()
-
     list(APPEND CURL_LIBS "-framework SystemConfiguration")
   endif()
 endif()
@@ -506,9 +524,9 @@ include(CheckSymbolExists)
 include(CheckTypeSize)
 include(CheckCSourceCompiles)
 
-# Preload settings on Windows
 if(WIN32)
-  include("${CMAKE_CURRENT_SOURCE_DIR}/CMake/Platforms/WindowsCache.cmake")
+  # Preload settings on Windows
+  include("${CMAKE_CURRENT_SOURCE_DIR}/CMake/win32-cache.cmake")
 elseif(APPLE)
   # Fast-track predictable feature detections
   set(HAVE_EVENTFD 0)
@@ -516,6 +534,9 @@ elseif(APPLE)
   set(HAVE_SENDMMSG 0)
 elseif(AMIGA)
   set(HAVE_GETADDRINFO 0)  # Breaks the build when detected and used.
+endif()
+if(DOS OR AMIGA)
+  set(HAVE_TIME_T_UNSIGNED 1)
 endif()
 
 if(ENABLE_THREADED_RESOLVER)
@@ -634,15 +655,15 @@ endif()
 if(CURL_USE_SECTRANSP)
   set(_use_core_foundation_and_core_services ON)
 
-  find_library(SECURITY_FRAMEWORK "Security")
+  find_library(SECURITY_FRAMEWORK NAMES "Security")
   mark_as_advanced(SECURITY_FRAMEWORK)
   if(NOT SECURITY_FRAMEWORK)
     message(FATAL_ERROR "Security framework not found")
   endif()
+  list(APPEND CURL_LIBS "-framework Security")
 
   set(_ssl_enabled ON)
   set(USE_SECTRANSP ON)
-  list(APPEND CURL_LIBS "-framework Security")
 
   if(CURL_DEFAULT_SSL_BACKEND AND CURL_DEFAULT_SSL_BACKEND STREQUAL "secure-transport")
     set(_valid_default_ssl_backend TRUE)
@@ -652,19 +673,19 @@ if(CURL_USE_SECTRANSP)
 endif()
 
 if(_use_core_foundation_and_core_services)
-  find_library(COREFOUNDATION_FRAMEWORK "CoreFoundation")
+  find_library(COREFOUNDATION_FRAMEWORK NAMES "CoreFoundation")
   mark_as_advanced(COREFOUNDATION_FRAMEWORK)
-  find_library(CORESERVICES_FRAMEWORK "CoreServices")
-  mark_as_advanced(CORESERVICES_FRAMEWORK)
-
   if(NOT COREFOUNDATION_FRAMEWORK)
     message(FATAL_ERROR "CoreFoundation framework not found")
   endif()
+  list(APPEND CURL_LIBS "-framework CoreFoundation")
+
+  find_library(CORESERVICES_FRAMEWORK NAMES "CoreServices")
+  mark_as_advanced(CORESERVICES_FRAMEWORK)
   if(NOT CORESERVICES_FRAMEWORK)
     message(FATAL_ERROR "CoreServices framework not found")
   endif()
-
-  list(APPEND CURL_LIBS "-framework CoreFoundation" "-framework CoreServices")
+  list(APPEND CURL_LIBS "-framework CoreServices")
 endif()
 
 if(CURL_USE_OPENSSL)
@@ -867,7 +888,7 @@ if(ZSTD_FOUND)
 endif()
 
 # Check symbol in an OpenSSL-like TLS backend, or in _extra_libs depending on it.
-macro(curl_openssl_check_symbol_exists _symbol _files _variable _extra_libs)
+macro(curl_openssl_check_symbol_exists _symbol _files _variable)
   cmake_push_check_state()
   if(USE_OPENSSL)
     list(APPEND CMAKE_REQUIRED_INCLUDES   "${OPENSSL_INCLUDE_DIR}")
@@ -893,40 +914,38 @@ macro(curl_openssl_check_symbol_exists _symbol _files _variable _extra_libs)
     endif()
     list(APPEND CMAKE_REQUIRED_DEFINITIONS "-DHAVE_UINTPTR_T")  # to pull in stdint.h (as of wolfSSL v5.5.4)
   endif()
-  list(APPEND CMAKE_REQUIRED_LIBRARIES "${_extra_libs}")
   check_symbol_exists("${_symbol}" "${_files}" "${_variable}")
   cmake_pop_check_state()
 endmacro()
 
 # Ensure that the OpenSSL fork actually supports QUIC.
 macro(curl_openssl_check_quic)
-  if(NOT DEFINED HAVE_SSL_CTX_SET_QUIC_METHOD)
+  if(NOT DEFINED HAVE_SSL_SET_QUIC_USE_LEGACY_CODEPOINT)
     if(USE_OPENSSL)
-      curl_openssl_check_symbol_exists("SSL_CTX_set_quic_method" "openssl/ssl.h" HAVE_SSL_CTX_SET_QUIC_METHOD "")
+      curl_openssl_check_symbol_exists("SSL_set_quic_use_legacy_codepoint" "openssl/ssl.h" HAVE_SSL_SET_QUIC_USE_LEGACY_CODEPOINT)
     endif()
     if(USE_WOLFSSL)
-      curl_openssl_check_symbol_exists("wolfSSL_set_quic_method" "wolfssl/options.h;wolfssl/openssl/ssl.h"
-        HAVE_SSL_CTX_SET_QUIC_METHOD "")
+      curl_openssl_check_symbol_exists("wolfSSL_set_quic_use_legacy_codepoint" "wolfssl/options.h;wolfssl/openssl/ssl.h"
+        HAVE_SSL_SET_QUIC_USE_LEGACY_CODEPOINT)
     endif()
   endif()
-  if(NOT HAVE_SSL_CTX_SET_QUIC_METHOD)
+  if(NOT HAVE_SSL_SET_QUIC_USE_LEGACY_CODEPOINT)
     message(FATAL_ERROR "QUIC support is missing in OpenSSL fork. Try setting -DOPENSSL_ROOT_DIR")
   endif()
 endmacro()
 
 if(USE_WOLFSSL)
-  curl_openssl_check_symbol_exists("wolfSSL_DES_ecb_encrypt" "wolfssl/options.h;wolfssl/openssl/des.h" HAVE_WOLFSSL_DES_ECB_ENCRYPT
-    "")
-  curl_openssl_check_symbol_exists("wolfSSL_BIO_new" "wolfssl/options.h;wolfssl/ssl.h" HAVE_WOLFSSL_BIO "")
-  curl_openssl_check_symbol_exists("wolfSSL_BIO_set_shutdown" "wolfssl/options.h;wolfssl/ssl.h" HAVE_WOLFSSL_FULL_BIO "")
+  curl_openssl_check_symbol_exists("wolfSSL_DES_ecb_encrypt" "wolfssl/options.h;wolfssl/openssl/des.h" HAVE_WOLFSSL_DES_ECB_ENCRYPT)
+  curl_openssl_check_symbol_exists("wolfSSL_BIO_new" "wolfssl/options.h;wolfssl/ssl.h" HAVE_WOLFSSL_BIO)
+  curl_openssl_check_symbol_exists("wolfSSL_BIO_set_shutdown" "wolfssl/options.h;wolfssl/ssl.h" HAVE_WOLFSSL_FULL_BIO)
 endif()
 
 if(USE_OPENSSL OR USE_WOLFSSL)
   if(NOT DEFINED HAVE_SSL_SET0_WBIO)
-    curl_openssl_check_symbol_exists("SSL_set0_wbio" "openssl/ssl.h" HAVE_SSL_SET0_WBIO "")
+    curl_openssl_check_symbol_exists("SSL_set0_wbio" "openssl/ssl.h" HAVE_SSL_SET0_WBIO)
   endif()
   if(NOT DEFINED HAVE_OPENSSL_SRP AND NOT CURL_DISABLE_SRP)
-    curl_openssl_check_symbol_exists("SSL_CTX_set_srp_username" "openssl/ssl.h" HAVE_OPENSSL_SRP "")
+    curl_openssl_check_symbol_exists("SSL_CTX_set_srp_username" "openssl/ssl.h" HAVE_OPENSSL_SRP)
   endif()
 endif()
 
@@ -937,14 +956,12 @@ if(USE_ECH)
     # Be sure that the TLS library actually supports ECH.
     if(USE_WOLFSSL)
       curl_openssl_check_symbol_exists("wolfSSL_CTX_GenerateEchConfig" "wolfssl/options.h;wolfssl/ssl.h"
-        HAVE_WOLFSSL_CTX_GENERATEECHCONFIG "")
+        HAVE_WOLFSSL_CTX_GENERATEECHCONFIG)
     endif()
     if(HAVE_BORINGSSL OR HAVE_AWSLC)
-      curl_openssl_check_symbol_exists("SSL_set1_ech_config_list" "openssl/ssl.h"
-        HAVE_SSL_SET1_ECH_CONFIG_LIST "")
+      curl_openssl_check_symbol_exists("SSL_set1_ech_config_list" "openssl/ssl.h" HAVE_SSL_SET1_ECH_CONFIG_LIST)
     elseif(HAVE_OPENSSL)
-      curl_openssl_check_symbol_exists("SSL_ech_set1_echconfig" "openssl/ech.h"
-        HAVE_SSL_ECH_SET1_ECHCONFIG "")
+      curl_openssl_check_symbol_exists("SSL_ech_set1_echconfig" "openssl/ech.h" HAVE_SSL_ECH_SET1_ECHCONFIG)
     endif()
     if(HAVE_WOLFSSL_CTX_GENERATEECHCONFIG OR
        HAVE_SSL_SET1_ECH_CONFIG_LIST OR
@@ -1364,20 +1381,14 @@ endif()
 
 option(USE_LIBRTMP "Enable librtmp from rtmpdump" OFF)
 if(USE_LIBRTMP)
-  set(_extra_libs "rtmp")
-  if(WIN32)
-    list(APPEND _extra_libs "winmm")
-  endif()
-  curl_openssl_check_symbol_exists("RTMP_Init" "librtmp/rtmp.h" HAVE_LIBRTMP "${_extra_libs}")
-  if(HAVE_LIBRTMP)
-    list(APPEND CURL_LIBS "rtmp")
-    list(APPEND LIBCURL_PC_REQUIRES_PRIVATE "librtmp")
-    if(WIN32)
-      list(APPEND CURL_LIBS "winmm")
-    endif()
-  else()
-    message(WARNING "librtmp has been requested, but not found or missing OpenSSL. Skipping.")
-    set(USE_LIBRTMP OFF)
+  find_package(Librtmp REQUIRED)
+  list(APPEND CURL_LIBS ${LIBRTMP_LIBRARIES})
+  list(APPEND CURL_LIBDIRS ${LIBRTMP_LIBRARY_DIRS})
+  list(APPEND LIBCURL_PC_REQUIRES_PRIVATE ${LIBRTMP_PC_REQUIRES})
+  include_directories(SYSTEM ${LIBRTMP_INCLUDE_DIRS})
+  link_directories(${LIBRTMP_LIBRARY_DIRS})
+  if(LIBRTMP_CFLAGS)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${LIBRTMP_CFLAGS}")
   endif()
 endif()
 
@@ -1532,7 +1543,6 @@ check_include_file_concat_curl("sys/time.h"       HAVE_SYS_TIME_H)
 check_include_file_concat_curl("sys/types.h"      HAVE_SYS_TYPES_H)
 check_include_file("sys/un.h"         HAVE_SYS_UN_H)
 check_include_file_concat_curl("sys/utime.h"      HAVE_SYS_UTIME_H)  # sys/types.h (AmigaOS)
-check_include_file("sys/xattr.h"      HAVE_SYS_XATTR_H)
 
 check_include_file_concat_curl("arpa/inet.h"      HAVE_ARPA_INET_H)
 check_include_file("dirent.h"         HAVE_DIRENT_H)
@@ -1542,7 +1552,7 @@ check_include_file("io.h"             HAVE_IO_H)
 check_include_file_concat_curl("libgen.h"         HAVE_LIBGEN_H)
 check_include_file("linux/tcp.h"      HAVE_LINUX_TCP_H)
 check_include_file("locale.h"         HAVE_LOCALE_H)
-check_include_file("net/if.h"         HAVE_NET_IF_H)
+check_include_file_concat_curl("net/if.h"         HAVE_NET_IF_H)  # sys/select.h (e.g. MS-DOS/Watt-32)
 check_include_file_concat_curl("netdb.h"          HAVE_NETDB_H)
 check_include_file_concat_curl("netinet/in.h"     HAVE_NETINET_IN_H)
 check_include_file("netinet/in6.h"    HAVE_NETINET_IN6_H)
@@ -1777,6 +1787,16 @@ if(NOT WIN32 AND NOT CMAKE_CROSSCOMPILING)
       argv[0][0] = ' ';
       return (argv[0][0] == ' ')?0:1;
     }" HAVE_WRITABLE_ARGV)
+endif()
+
+if(NOT CMAKE_CROSSCOMPILING)
+  include(CheckCSourceRuns)
+  check_c_source_runs("
+    #include <time.h>
+    int main(void) {
+      time_t t = -1;
+      return t < 0;
+    }" HAVE_TIME_T_UNSIGNED)
 endif()
 
 curl_internal_test(HAVE_GLIBC_STRERROR_R)

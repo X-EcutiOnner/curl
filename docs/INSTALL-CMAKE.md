@@ -149,6 +149,8 @@ assumes that CMake generates `Makefile`:
 - `BUILD_STATIC_CURL`:                      Build curl executable with static libcurl. Default: `OFF`
 - `BUILD_STATIC_LIBS`:                      Build static libraries. Default: `OFF`
 - `BUILD_TESTING`:                          Build tests. Default: `ON`
+- `CURL_CLANG_TIDY`:                        Run the build through `clang-tidy`. Default: `OFF`
+- `CURL_CLANG_TIDYFLAGS`:                   Custom options to pass to `clang-tidy`. Default: (empty)
 - `CURL_DEFAULT_SSL_BACKEND`:               Override default TLS backend in MultiSSL builds.
                                             Accepted values in order of default priority:
                                             `wolfssl`, `gnutls`, `mbedtls`, `openssl`, `secure-transport`, `schannel`, `bearssl`, `rustls`
@@ -303,6 +305,7 @@ Details via CMake
 
 ## Dependency options
 
+- `CLANG_TIDY`:                             `clang-tidy` tool used with `CURL_CLANG_TIDY=ON`. Default: `clang-tidy`
 - `PERL_EXECUTABLE`                         Perl binary used throughout the build and tests.
 - `AMISSL_INCLUDE_DIR`:                     The AmiSSL include directory.
 - `AMISSL_STUBS_LIBRARY`:                   Path to `amisslstubs` library.
@@ -314,6 +317,7 @@ Details via CMake
 - `BROTLIDEC_LIBRARY`:                      Path to `brotlidec` library.
 - `CARES_INCLUDE_DIR`:                      The c-ares include directory.
 - `CARES_LIBRARY`:                          Path to `cares` library.
+- `DL_LIBRARY`:                             Path to `dl` library. (for Rustls)
 - `GSS_ROOT_DIR`:                           Set this variable to the root installation of GSS. (also supported as environment)
 - `LDAP_LIBRARY`:                           Name or full path to `ldap` library. Default: `ldap`
 - `LDAP_LBER_LIBRARY`:                      Name or full path to `lber` library. Default: `lber`
@@ -324,18 +328,21 @@ Details via CMake
 - `LIBIDN2_LIBRARY`:                        Path to `libidn2` library.
 - `LIBPSL_INCLUDE_DIR`:                     The libpsl include directory.
 - `LIBPSL_LIBRARY`:                         Path to `libpsl` library.
+- `LIBRTMP_INCLUDE_DIR`:                    The librtmp include directory.
+- `LIBRTMP_LIBRARY`:                        Path to `librtmp` library.
 - `LIBSSH_INCLUDE_DIR`:                     The libssh include directory.
 - `LIBSSH_LIBRARY`:                         Path to `libssh` library.
 - `LIBSSH2_INCLUDE_DIR`:                    The libssh2 include directory.
 - `LIBSSH2_LIBRARY`:                        Path to `libssh2` library.
 - `LIBUV_INCLUDE_DIR`:                      The libuv include directory.
 - `LIBUV_LIBRARY`:                          Path to `libuv` library.
-- `MSH3_INCLUDE_DIR`:                       The msh3 include directory.
-- `MSH3_LIBRARY`:                           Path to `msh3` library.
+- `MATH_LIBRARY`:                           Path to `m` library. (for Rustls, wolfSSL)
 - `MBEDTLS_INCLUDE_DIR`:                    The mbedTLS include directory.
 - `MBEDTLS_LIBRARY`:                        Path to `mbedtls` library.
 - `MBEDX509_LIBRARY`:                       Path to `mbedx509` library.
 - `MBEDCRYPTO_LIBRARY`:                     Path to `mbedcrypto` library.
+- `MSH3_INCLUDE_DIR`:                       The msh3 include directory.
+- `MSH3_LIBRARY`:                           Path to `msh3` library.
 - `NGHTTP2_INCLUDE_DIR`:                    The nghttp2 include directory.
 - `NGHTTP2_LIBRARY`:                        Path to `nghttp2` library.
 - `NGHTTP3_INCLUDE_DIR`:                    The nghttp3 include directory.
@@ -344,6 +351,7 @@ Details via CMake
 - `NGTCP2_LIBRARY`:                         Path to `ngtcp2` library.
 - `NETTLE_INCLUDE_DIR`:                     The nettle include directory.
 - `NETTLE_LIBRARY`:                         Path to `nettle` library.
+- `PTHREAD_LIBRARY`:                        Path to `pthread` library. (for Rustls)
 - `QUICHE_INCLUDE_DIR`:                     The quiche include directory.
 - `QUICHE_LIBRARY`:                         Path to `quiche` library.
 - `RUSTLS_INCLUDE_DIR`:                     The Rustls include directory.

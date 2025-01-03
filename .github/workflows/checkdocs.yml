@@ -120,6 +120,9 @@ jobs:
       - name: trim cmdline docs markdown _*.md files
         run: find docs/cmdline-opts -name "_*.md" -print0 | xargs -0 -n1 .github/scripts/cleancmd.pl --no-header
 
+      - name: trim docs/ markdown _*.md files
+        run: git ls-files docs/*.md docs/internals/*.md | xargs -n1 .github/scripts/cleancmd.pl --no-header
+
       - name: setup the custom wordlist
         run: grep -v '^#' .github/scripts/spellcheck.words >  wordlist.txt
 
@@ -137,7 +140,7 @@ jobs:
         name: checkout
 
       - name: badwords
-        run: .github/scripts/badwords.pl < .github/scripts/badwords.txt docs/*.md docs/libcurl/*.md docs/libcurl/opts/*.md docs/cmdline-opts/*.md docs/TODO docs/KNOWN_BUGS tests/*.md
+        run: .github/scripts/badwords.pl < .github/scripts/badwords.txt `git ls-files '**.md'` docs/TODO docs/KNOWN_BUGS packages/OS400/README.OS400
 
       - name: verify-synopsis
         run: .github/scripts/verify-synopsis.pl docs/libcurl/curl*.md
