@@ -497,13 +497,14 @@ bool Curl_conn_is_multiplex(struct connectdata *conn, int sockindex)
   return FALSE;
 }
 
-unsigned char Curl_conn_http_version(struct Curl_easy *data)
+unsigned char Curl_conn_http_version(struct Curl_easy *data,
+                                     struct connectdata *conn)
 {
   struct Curl_cfilter *cf;
   CURLcode result = CURLE_UNKNOWN_OPTION;
   unsigned char v = 0;
 
-  cf = data->conn ? data->conn->cfilter[FIRSTSOCKET] : NULL;
+  cf = conn->cfilter[FIRSTSOCKET];
   for(; cf; cf = cf->next) {
     if(cf->cft->flags & CF_TYPE_HTTP) {
       int value = 0;
@@ -881,14 +882,14 @@ CURLcode Curl_conn_send(struct Curl_easy *data, int sockindex,
   DEBUGASSERT(data->conn);
   conn = data->conn;
 #ifdef DEBUGBUILD
-  {
+  if(write_len) {
     /* Allow debug builds to override this logic to force short sends
     */
     const char *p = getenv("CURL_SMALLSENDS");
     if(p) {
       curl_off_t altsize;
-      if(!Curl_str_number(&p, &altsize, SIZE_T_MAX))
-        write_len = CURLMIN(write_len, (size_t)altsize);
+      if(!Curl_str_number(&p, &altsize, write_len))
+        write_len = (size_t)altsize;
     }
   }
 #endif
