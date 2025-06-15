@@ -59,6 +59,10 @@
 #error "We cannot compile without socket() support!"
 #endif
 
+#if defined(HAVE_IF_NAMETOINDEX) && defined(_WIN32)
+#include <iphlpapi.h>
+#endif
+
 #include <limits.h>
 
 #include "doh.h"
@@ -107,7 +111,6 @@
 #include "imap.h"
 #include "url.h"
 #include "connect.h"
-#include "inet_ntop.h"
 #include "http_ntlm.h"
 #include "curl_rtmp.h"
 #include "gopher.h"
@@ -422,13 +425,11 @@ CURLcode Curl_init_userdefined(struct Curl_easy *data)
 
   /* Set the default CA cert bundle/path detected/specified at build time.
    *
-   * If Schannel or Secure Transport is the selected SSL backend then these
-   * locations are ignored. We allow setting CA location for Schannel and
-   * Secure Transport when explicitly specified by the user via
-   *  CURLOPT_CAINFO / --cacert.
+   * If Schannel is the selected SSL backend then these locations are ignored.
+   * We allow setting CA location for Schannel when explicitly specified by
+   * the user via CURLOPT_CAINFO / --cacert.
    */
-  if(Curl_ssl_backend() != CURLSSLBACKEND_SCHANNEL &&
-     Curl_ssl_backend() != CURLSSLBACKEND_SECURETRANSPORT) {
+  if(Curl_ssl_backend() != CURLSSLBACKEND_SCHANNEL) {
 #ifdef CURL_CA_BUNDLE
     result = Curl_setstropt(&set->str[STRING_SSL_CAFILE], CURL_CA_BUNDLE);
     if(result)
@@ -472,8 +473,8 @@ CURLcode Curl_init_userdefined(struct Curl_easy *data)
   set->happy_eyeballs_timeout = CURL_HET_DEFAULT;
   set->upkeep_interval_ms = CURL_UPKEEP_INTERVAL_DEFAULT;
   set->maxconnects = DEFAULT_CONNCACHE_SIZE; /* for easy handles */
-  set->maxage_conn = 118;
-  set->maxlifetime_conn = 0;
+  set->conn_max_idle_ms = 118 * 1000;
+  set->conn_max_age_ms = 0;
   set->http09_allowed = FALSE;
   set->httpwant = CURL_HTTP_VERSION_NONE
     ;
@@ -670,35 +671,35 @@ socks_proxy_info_matches(const struct proxy_info *data,
 #define socks_proxy_info_matches(x,y) FALSE
 #endif
 
-/* A connection has to have been idle for a shorter time than 'maxage_conn'
+/* A connection has to have been idle for less than 'conn_max_idle_ms'
    (the success rate is just too low after this), or created less than
-   'maxlifetime_conn' ago, to be subject for reuse. */
-
+   'conn_max_age_ms' ago, to be subject for reuse. */
 static bool conn_maxage(struct Curl_easy *data,
                         struct connectdata *conn,
                         struct curltime now)
 {
-  timediff_t idletime, lifetime;
+  timediff_t age_ms;
 
-  idletime = curlx_timediff(now, conn->lastused);
-  idletime /= 1000; /* integer seconds is fine */
-
-  if(idletime > data->set.maxage_conn) {
-    infof(data, "Too old connection (%" FMT_TIMEDIFF_T
-          " seconds idle), disconnect it", idletime);
-    return TRUE;
+  if(data->set.conn_max_idle_ms) {
+    age_ms = curlx_timediff(now, conn->lastused);
+    if(age_ms > data->set.conn_max_idle_ms) {
+      infof(data, "Too old connection (%" FMT_TIMEDIFF_T
+            " ms idle, max idle is %" FMT_TIMEDIFF_T " ms), disconnect it",
+            age_ms, data->set.conn_max_idle_ms);
+      return TRUE;
+    }
   }
 
-  lifetime = curlx_timediff(now, conn->created);
-  lifetime /= 1000; /* integer seconds is fine */
-
-  if(data->set.maxlifetime_conn && lifetime > data->set.maxlifetime_conn) {
-    infof(data,
-          "Too old connection (%" FMT_TIMEDIFF_T
-          " seconds since creation), disconnect it", lifetime);
-    return TRUE;
+  if(data->set.conn_max_age_ms) {
+    age_ms = curlx_timediff(now, conn->created);
+    if(age_ms > data->set.conn_max_age_ms) {
+      infof(data,
+            "Too old connection (created %" FMT_TIMEDIFF_T
+            " ms ago, max lifetime is %" FMT_TIMEDIFF_T " ms), disconnect it",
+            age_ms, data->set.conn_max_age_ms);
+      return TRUE;
+    }
   }
-
 
   return FALSE;
 }
@@ -1795,10 +1796,10 @@ static void zonefrom_url(CURLU *uh, struct Curl_easy *data,
 #if defined(HAVE_IF_NAMETOINDEX) || defined(_WIN32)
       /* Zone identifier is not numeric */
       unsigned int scopeidx = 0;
-#ifdef _WIN32
-      scopeidx = Curl_if_nametoindex(zoneid);
-#else
+#ifdef HAVE_IF_NAMETOINDEX
       scopeidx = if_nametoindex(zoneid);
+#else
+      scopeidx = Curl_if_nametoindex(zoneid);
 #endif
       if(!scopeidx) {
 #ifndef CURL_DISABLE_VERBOSE_STRINGS
