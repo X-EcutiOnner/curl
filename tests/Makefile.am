@@ -62,8 +62,6 @@ EXTRA_DIST =        \
  http2-server.pl    \
  http3-server.pl    \
  memanalyze.pl      \
- mk-bundle-hints.sh \
- mk-bundle.pl       \
  negtelnetserver.py \
  nghttpx.conf       \
  pathhelp.pm        \
